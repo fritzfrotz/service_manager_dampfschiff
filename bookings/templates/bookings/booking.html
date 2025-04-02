@@ -1,0 +1,42 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Book an Appointment</title>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+    }
+
+    #calendar {
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 0 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1 style="text-align: center;">Book an Appointment</h1>
+  <div id="calendar"></div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const calendarEl = document.getElementById('calendar');
+
+      const calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        selectable: true,
+        dateClick: function (info) {
+          const date = info.dateStr;
+          // 👇 This is the important bit — make sure it’s inside quotes!
+          window.location.href = "{% url 'book_appointment' %}?date=" + date;
+        }
+      });
+
+      calendar.render();
+    });
+  </script>
+</body>
+</html>
