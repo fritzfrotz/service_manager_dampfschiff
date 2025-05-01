@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="popup" class="fixed inset-0 bg-gray-500 bg-opacity-75 flex justify-center items-center">
+  <div class="bg-white rounded-lg shadow-lg p-8 text-center">
+    <h2 class="text-2xl font-bold mb-4">Booking Successful!</h2>
+    <p>Your appointment has been booked successfully.</p>
+    <a href="{% url 'booking' %}" class="mt-4 inline-block px-6 py-2 bg-blue-500 text-white rounded">Back to calendar</a>
+  </div>
+</div>
+{% endblock %}

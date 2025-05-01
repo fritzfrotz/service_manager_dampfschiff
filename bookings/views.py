@@ -37,7 +37,7 @@ def book_appointment(request):
             appointment.price = 50 + num_existing * 10
 
             appointment.save()
-            return redirect('booking_success')  # you can make this later
+            return redirect('booking_success')
     else:
         date_str = request.GET.get('date')
         date = datetime.strptime(date_str, "%Y-%m-%d")
@@ -54,4 +54,4 @@ def book_appointment(request):
     })
 
 def booking_success(request):
-    return HttpResponse("<h2>Appointment successfully booked!</h2><p><a href='/booking/'>Back to calendar</a></p>")
+    return render(request, 'bookings/appointment_success.html')

@@ -17,4 +17,7 @@ db.sqlite3
 dist
 build
 
+#pyenv
+service_manager_pyenv
+#env
 .env
