@@ -5,22 +5,36 @@
 <head>
   <title>Book an Appointment</title>
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+
+  <!-- CSS goes here -->
   <style>
-    body {
-      font-family: Arial, sans-serif;
+    body { font-family: Arial, sans-serif; }
+    #calendar { max-width: 900px; margin: 40px auto; padding: 0 10px; }
+
+    .price-label {
+      font-size: 0.75rem;
+      color: #007BFF;
+      margin-top: 2px;
     }
 
-    #calendar {
-      max-width: 900px;
-      margin: 40px auto;
-      padding: 0 10px;
+    .unavailable {
+      color: #ff0000;
+      text-decoration: line-through;
+    }
+
+    .fc-daygrid-day-number {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
   </style>
+
 </head>
 <body>
   <h1 style="text-align: center;">Book an Appointment</h1>
   <div id="calendar"></div>
 
+  <!-- JS goes here -->
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       const calendarEl = document.getElementById('calendar');
@@ -29,9 +43,34 @@
         initialView: 'dayGridMonth',
         selectable: true,
         dateClick: function (info) {
-          const date = info.dateStr;
-          // 👇 This is the important bit — make sure it’s inside quotes!
-          window.location.href = "{% url 'book_appointment' %}?date=" + date;
+          window.location.href = "{% url 'book_appointment' %}?date=" + info.dateStr;
+        },
+        datesSet: function(info) {
+          document.querySelectorAll('.price-label').forEach(el => el.remove());
+
+          const visibleDate = calendar.getDate();
+          const currentYear = visibleDate.getFullYear();
+          const currentMonth = visibleDate.getMonth() + 1;
+
+          fetch(`/api/monthly-pricing/?year=${currentYear}&month=${currentMonth}`)
+            .then(response => response.json())
+            .then(data => {
+              data.pricing.forEach(dayInfo => {
+                const dayCell = calendarEl.querySelector(`[data-date="${dayInfo.date}"] .fc-daygrid-day-number`);
+                if (dayCell) {
+                  const priceEl = document.createElement('span');
+                  priceEl.classList.add('price-label');
+                  priceEl.textContent = `€${dayInfo.price}`;
+
+                  if (!dayInfo.available) {
+                    priceEl.classList.add('unavailable');
+                  }
+
+                  dayCell.appendChild(priceEl);
+                }
+              });
+            })
+            .catch(err => console.error("Error fetching prices:", err));
         }
       });
 
