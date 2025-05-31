@@ -201,3 +201,7 @@ def delete_account(request):
         user.delete()
         return redirect('booking')
     return render(request, "registration/delete_account_confirm.html")
+
+@login_required
+def dashboard(request):
+    return render(request, "dashboard.html", {"user": request.user})
