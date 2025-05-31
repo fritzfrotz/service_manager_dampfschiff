@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2>My Profile</h2>
+  <div class="mb-4">
+    <strong>Username:</strong> {{ user.username }}<br>
+    <strong>Email:</strong> {{ user.email }}
+  </div>
+  <h3 class="mt-6 mb-2 font-bold">My Info</h3>
+  <form method="post" enctype="multipart/form-data" class="mb-4">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded">Save</button>
+  </form>
+  {% if profile.heating_system_photo %}
+    <div class="mb-4">
+      <strong>Current Heating System Photo:</strong><br>
+      <img src="{{ profile.heating_system_photo.url }}" alt="Heating System Photo" class="max-w-xs border rounded mt-2">
+    </div>
+  {% endif %}
+  <a href="{% url 'delete_account' %}" class="text-red-600 underline">Delete my account</a>
+{% endblock %}

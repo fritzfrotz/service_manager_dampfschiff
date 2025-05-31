@@ -7,6 +7,6 @@ urlpatterns = [
     path('book/', views.book_appointment, name='book_appointment'),
     path('success/', views.booking_success, name='booking_success'),
     path('api/monthly-pricing/', views.monthly_pricing, name='monthly_pricing'),
-
-
+    path('api/hourly-pricing/', views.hourly_pricing, name='hourly_pricing'),
+    path('api/book-hour/', views.book_hour, name='book_hour'),
 ]

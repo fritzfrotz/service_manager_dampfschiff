@@ -5,6 +5,7 @@
 <head>
   <title>Book an Appointment</title>
   <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 
   <!-- CSS goes here -->
   <style>
@@ -34,6 +35,17 @@
   <h1 style="text-align: center;">Book an Appointment</h1>
   <div id="calendar"></div>
 
+  <!-- Hourly Modal -->
+  <div id="hourly-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-lg w-full max-w-md p-6 relative max-h-[90vh] flex flex-col">
+      <button id="close-hourly-modal" class="sticky top-0 right-0 self-end z-10 text-gray-400 hover:text-gray-700 text-2xl bg-white">&times;</button>
+      <h2 class="text-xl font-bold mb-4" id="modal-date-title">Hourly Prices</h2>
+      <div id="hourly-slots" class="space-y-2 overflow-y-auto" style="max-height:60vh;">
+        <!-- Hourly slots will be injected here -->
+      </div>
+    </div>
+  </div>
+
   <!-- JS goes here -->
   <script>
     document.addEventListener('DOMContentLoaded', function () {
@@ -43,7 +55,62 @@
         initialView: 'dayGridMonth',
         selectable: true,
         dateClick: function (info) {
-          window.location.href = "{% url 'book_appointment' %}?date=" + info.dateStr;
+          // Open modal instead of redirect
+          const modal = document.getElementById('hourly-modal');
+          const slotsContainer = document.getElementById('hourly-slots');
+          const dateTitle = document.getElementById('modal-date-title');
+          dateTitle.textContent = `Hourly Prices for ${info.dateStr}`;
+          modal.classList.remove('hidden');
+          slotsContainer.innerHTML = '<div class="text-center text-gray-500">Loading...</div>';
+          // Fetch hourly prices
+          fetch(`/api/hourly-pricing/?date=${info.dateStr}`)
+            .then(response => response.json())
+            .then(data => {
+              slotsContainer.innerHTML = '';
+              for (let hour = 9; hour <= 16; hour++) {
+                const hourStr = hour.toString().padStart(2, '0') + ':00';
+                const price = data.pricing[hourStr]?.price ?? '-';
+                const available = data.pricing[hourStr]?.available;
+                const slotDiv = document.createElement('div');
+                slotDiv.className = 'flex justify-between items-center p-2 border rounded';
+                slotDiv.innerHTML = `<span class="font-mono">${hourStr}</span> <span class="${available ? 'text-green-600' : 'text-red-500 line-through'}">€${price}</span>`;
+                if (available) {
+                  const bookBtn = document.createElement('button');
+                  bookBtn.textContent = 'Book';
+                  bookBtn.className = 'ml-4 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50';
+                  bookBtn.onclick = function() {
+                    bookBtn.disabled = true;
+                    bookBtn.textContent = 'Booking...';
+                    fetch('/api/book-hour/', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ date: info.dateStr, hour: hourStr })
+                    })
+                    .then(res => res.json())
+                    .then(result => {
+                      bookBtn.textContent = result.success ? 'Booked!' : 'Book';
+                      if (!result.success) {
+                        bookBtn.disabled = false;
+                        showModalMessage(result.message, false);
+                      } else {
+                        showModalMessage('Booking successful!', true);
+                        // Optionally, refresh the calendar or slot availability
+                      }
+                    })
+                    .catch(() => {
+                      bookBtn.textContent = 'Book';
+                      bookBtn.disabled = false;
+                      showModalMessage('Error booking slot.', false);
+                    });
+                  };
+                  slotDiv.appendChild(bookBtn);
+                }
+                slotsContainer.appendChild(slotDiv);
+              }
+            })
+            .catch(() => {
+              slotsContainer.innerHTML = '<div class="text-red-500 text-center">Error loading hourly prices.</div>';
+            });
         },
         datesSet: function(info) {
           document.querySelectorAll('.price-label').forEach(el => el.remove());
@@ -56,17 +123,32 @@
             .then(response => response.json())
             .then(data => {
               data.pricing.forEach(dayInfo => {
-                const dayCell = calendarEl.querySelector(`[data-date="${dayInfo.date}"] .fc-daygrid-day-number`);
-                if (dayCell) {
-                  const priceEl = document.createElement('span');
-                  priceEl.classList.add('price-label');
-                  priceEl.textContent = `€${dayInfo.price}`;
-
-                  if (!dayInfo.available) {
-                    priceEl.classList.add('unavailable');
+                const dayCell = calendarEl.querySelector(`[data-date="${dayInfo.date}"]`);
+                const dayNumberCell = dayCell?.querySelector('.fc-daygrid-day-number');
+                if (dayCell && dayNumberCell) {
+                  // Remove previous color classes
+                  dayCell.classList.remove('bg-green-200', 'bg-orange-200', 'bg-red-200', 'bg-gray-200');
+                  // Color logic: green (0-2), orange (3-5), red (6-7), gray (fully booked)
+                  let bgColor = '';
+                  if (dayInfo.booked_slots >= 8) {
+                    bgColor = '#e5e7eb'; // gray-200
+                  } else if (dayInfo.booked_slots >= 6) {
+                    bgColor = '#fecaca'; // red-200
+                  } else if (dayInfo.booked_slots >= 3) {
+                    bgColor = '#fed7aa'; // orange-200
+                  } else {
+                    bgColor = '#bbf7d0'; // green-200
                   }
+                  dayCell.style.backgroundColor = bgColor;
 
-                  dayCell.appendChild(priceEl);
+                  // Price label (text only, no color)
+                  let priceEl = dayNumberCell.querySelector('.price-label');
+                  if (!priceEl) {
+                    priceEl = document.createElement('span');
+                    priceEl.classList.add('price-label');
+                    dayNumberCell.appendChild(priceEl);
+                  }
+                  priceEl.textContent = `from €${dayInfo.price}`;
                 }
               });
             })
@@ -75,6 +157,29 @@
       });
 
       calendar.render();
+
+      // Modal close handler
+      document.getElementById('close-hourly-modal').onclick = function() {
+        document.getElementById('hourly-modal').classList.add('hidden');
+      };
+      // Optional: close modal on background click
+      document.getElementById('hourly-modal').onclick = function(e) {
+        if (e.target === this) this.classList.add('hidden');
+      };
+
+      // Helper to show a message in the modal
+      function showModalMessage(msg, success) {
+        let msgDiv = document.getElementById('modal-message');
+        if (!msgDiv) {
+          msgDiv = document.createElement('div');
+          msgDiv.id = 'modal-message';
+          msgDiv.className = 'my-2 text-center';
+          document.getElementById('hourly-slots').parentNode.insertBefore(msgDiv, document.getElementById('hourly-slots'));
+        }
+        msgDiv.textContent = msg;
+        msgDiv.className = 'my-2 text-center ' + (success ? 'text-green-600' : 'text-red-500');
+        if (success) setTimeout(() => { msgDiv.textContent = ''; }, 2000);
+      }
     });
   </script>
 </body>
