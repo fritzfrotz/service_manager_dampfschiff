@@ -33,6 +33,13 @@
 </head>
 <body>
   <a href="{% url 'dashboard' %}" class="inline-block mt-4 mb-2 px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">&larr; Back to Dashboard</a>
+  <div class="mb-4 flex flex-col items-center">
+    <div>
+      <button id="earliest-btn" class="mr-4 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">Earliest Available</button>
+      <button id="lowest-btn" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Lowest Cost</button>
+    </div>
+    <div id="optimized-result" class="mt-4"></div>
+  </div>
   <h1 style="text-align: center;">Book an Appointment</h1>
   <div id="calendar"></div>
 
@@ -149,7 +156,11 @@
                     priceEl.classList.add('price-label');
                     dayNumberCell.appendChild(priceEl);
                   }
-                  priceEl.textContent = `from €${dayInfo.price}`;
+                  if (!dayInfo.available) {
+                    priceEl.textContent = 'No bookings available';
+                  } else {
+                    priceEl.textContent = `from €${dayInfo.price}`;
+                  }
                 }
               });
             })
@@ -181,6 +192,136 @@
         msgDiv.className = 'my-2 text-center ' + (success ? 'text-green-600' : 'text-red-500');
         if (success) setTimeout(() => { msgDiv.textContent = ''; }, 2000);
       }
+
+      // Helper to open the hourly modal for a given date and scroll to a specific hour
+      function openHourlyModalFor(dateStr, hourStr) {
+        const calendar = window.calendarInstance;
+        // Open the modal as if the user clicked the day
+        const modal = document.getElementById('hourly-modal');
+        const slotsContainer = document.getElementById('hourly-slots');
+        const dateTitle = document.getElementById('modal-date-title');
+        dateTitle.textContent = `Hourly Prices for ${dateStr}`;
+        modal.classList.remove('hidden');
+        slotsContainer.innerHTML = '<div class="text-center text-gray-500">Loading...</div>';
+        fetch(`/api/hourly-pricing/?date=${dateStr}`)
+          .then(response => response.json())
+          .then(data => {
+            slotsContainer.innerHTML = '';
+            let targetSlot = null;
+            for (let hour = 9; hour <= 16; hour++) {
+              const hourStrLoop = hour.toString().padStart(2, '0') + ':00';
+              const price = data.pricing[hourStrLoop]?.price ?? '-';
+              const available = data.pricing[hourStrLoop]?.available;
+              const slotDiv = document.createElement('div');
+              slotDiv.className = 'flex justify-between items-center p-2 border rounded';
+              slotDiv.innerHTML = `<span class="font-mono">${hourStrLoop}</span> <span class="${available ? 'text-green-600' : 'text-red-500 line-through'}">€${price}</span>`;
+              const actionsDiv = document.createElement('div');
+              actionsDiv.className = 'ml-4';
+
+              if (data.pricing[hourStrLoop]?.booked_by_user) {
+                const cancelBtn = document.createElement('button');
+                cancelBtn.textContent = 'Cancel Booking';
+                cancelBtn.className = 'px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 text-sm';
+                cancelBtn.onclick = function() {
+                  cancelBtn.disabled = true;
+                  cancelBtn.textContent = 'Cancelling...';
+                  fetch('/api/cancel-booking/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: dateStr, hour: hourStrLoop })
+                  })
+                  .then(res => res.json())
+                  .then(result => {
+                    cancelBtn.textContent = result.success ? 'Cancelled!' : 'Cancel Booking';
+                    if (result.success) {
+                      showModalMessage('Cancellation successful!', true);
+                      // Refresh the modal content after cancellation
+                      openHourlyModalFor(dateStr, hourStr);
+                    } else {
+                      cancelBtn.disabled = false;
+                      showModalMessage(result.message, false);
+                    }
+                  })
+                  .catch(() => {
+                    cancelBtn.textContent = 'Cancel Booking';
+                    cancelBtn.disabled = false;
+                    showModalMessage('Error cancelling booking.', false);
+                  });
+                };
+                actionsDiv.appendChild(cancelBtn);
+              } else if (available) {
+                const bookBtn = document.createElement('button');
+                bookBtn.textContent = 'Book';
+                bookBtn.className = 'px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 text-sm';
+                bookBtn.onclick = function() {
+                  bookBtn.disabled = true;
+                  bookBtn.textContent = 'Booking...';
+                  fetch('/api/book-hour/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: dateStr, hour: hourStrLoop })
+                  })
+                  .then(res => res.json())
+                  .then(result => {
+                    bookBtn.textContent = result.success ? 'Booked!' : 'Book';
+                    if (result.success) {
+                      showModalMessage('Booking successful!', true);
+                      // Refresh the modal content after booking
+                      openHourlyModalFor(dateStr, hourStr);
+                    } else {
+                      bookBtn.disabled = false;
+                      showModalMessage(result.message, false);
+                    }
+                  })
+                  .catch(() => {
+                    bookBtn.textContent = 'Book';
+                    bookBtn.disabled = false;
+                    showModalMessage('Error booking slot.', false);
+                  });
+                };
+                actionsDiv.appendChild(bookBtn);
+              }
+              slotDiv.appendChild(actionsDiv);
+              slotsContainer.appendChild(slotDiv);
+              if (hourStrLoop === hourStr) {
+                targetSlot = slotDiv;
+              }
+            }
+            // Scroll to the recommended slot
+            if (targetSlot) {
+              setTimeout(() => { targetSlot.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 100);
+            }
+          })
+          .catch(() => {
+            slotsContainer.innerHTML = '<div class="text-red-500 text-center">Error loading hourly prices.</div>';
+          });
+      }
+
+      function showOptimizedResult(type, slot) {
+        const resultDiv = document.getElementById('optimized-result');
+        if (!slot) {
+          resultDiv.innerHTML = `<div class='text-red-600'>No available slot found.</div>`;
+          return;
+        }
+        resultDiv.innerHTML = `<div class='mb-2'><strong>${type}:</strong> ${slot.date} at ${slot.hour} for €${slot.price}</div>
+          <button id='goto-slot-btn' class='inline-block mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600'>Go to Slot</button>`;
+        document.getElementById('goto-slot-btn').onclick = function() {
+          openHourlyModalFor(slot.date, slot.hour);
+        };
+      }
+      document.getElementById('earliest-btn').onclick = function() {
+        fetch('/api/optimized-booking/')
+          .then(res => res.json())
+          .then(data => showOptimizedResult('Earliest Available', data.earliest));
+      };
+      document.getElementById('lowest-btn').onclick = function() {
+        fetch('/api/optimized-booking/')
+          .then(res => res.json())
+          .then(data => showOptimizedResult('Lowest Cost', data.lowest));
+      };
+
+      // Expose calendar instance if needed
+      window.calendarInstance = calendar;
     });
   </script>
 </body>

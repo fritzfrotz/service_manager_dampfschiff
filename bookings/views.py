@@ -78,7 +78,9 @@ def monthly_pricing(request):
 
     current_date = start_date
     while current_date <= end_date:
-        lowest_price = None
+        # Count bookings for the whole day
+        day_bookings = Appointment.objects.filter(appointment_date__date=current_date).count()
+        lowest_price = base_price + (day_bookings * 10)
         available = False
         booked_slots = 0
         for hour in range(9, 17):
@@ -87,10 +89,7 @@ def monthly_pricing(request):
                 hour_start = timezone.make_aware(hour_start)
             hour_end = hour_start + timedelta(hours=1)
             num_booked = Appointment.objects.filter(appointment_date__gte=hour_start, appointment_date__lt=hour_end).count()
-            price = base_price + (num_booked * 10)
             slot_available = num_booked < max_bookings_per_hour
-            if lowest_price is None or price < lowest_price:
-                lowest_price = price
             if slot_available:
                 available = True
             if num_booked >= 1:
@@ -118,6 +117,8 @@ def hourly_pricing(request):
     base_price = 50
     max_bookings_per_hour = 1  # adjust as needed
     pricing = {}
+    day_bookings = Appointment.objects.filter(appointment_date__date=day).count()
+    day_price = base_price + (day_bookings * 10)
 
     for hour in range(24):
         hour_start = datetime.combine(day, datetime.min.time()).replace(hour=hour)
@@ -125,10 +126,13 @@ def hourly_pricing(request):
             hour_start = timezone.make_aware(hour_start)
         hour_end = hour_start + timedelta(hours=1)
         num_booked = Appointment.objects.filter(appointment_date__gte=hour_start, appointment_date__lt=hour_end).count()
-        price = base_price + (num_booked * 10)
         available = num_booked < max_bookings_per_hour
+        booked_by_user = False
+        if request.user.is_authenticated:
+            booked_by_user = Appointment.objects.filter(customer=request.user, appointment_date__gte=hour_start, appointment_date__lt=hour_end).exists()
+
         hour_str = f"{hour:02d}:00"
-        pricing[hour_str] = {'price': price, 'available': available}
+        pricing[hour_str] = {'price': day_price, 'available': available, 'booked_by_user': booked_by_user}
 
     return JsonResponse({'pricing': pricing})
 
@@ -158,8 +162,9 @@ def book_hour(request):
     if num_booked >= max_bookings_per_hour:
         return JsonResponse({'success': False, 'message': 'This slot is already fully booked.'})
 
-    # Create appointment
-    price = 50 + num_booked * 10
+    # Calculate price based on total bookings for the day
+    day_bookings = Appointment.objects.filter(appointment_date__date=dt.date()).count()
+    price = 50 + day_bookings * 10
     Appointment.objects.create(
         customer=request.user,
         appointment_date=dt,
@@ -173,7 +178,7 @@ def register(request):
         if form.is_valid():
             user = form.save()
             login(request, user)
-            return redirect('booking')
+            return redirect('dashboard')
     else:
         form = CustomUserCreationForm()
     return render(request, "registration/register.html", {"form": form})
@@ -205,3 +210,58 @@ def delete_account(request):
 @login_required
 def dashboard(request):
     return render(request, "dashboard.html", {"user": request.user})
+
+@require_GET
+def optimized_booking(request):
+    # Scan next 30 days, working hours 9-16
+    today = timezone.localdate()
+    base_price = 50
+    max_bookings_per_hour = 1
+    days_to_check = 30
+    earliest = None
+    lowest = None
+    lowest_price = None
+    for day_offset in range(days_to_check):
+        day = today + timedelta(days=day_offset)
+        day_bookings = Appointment.objects.filter(appointment_date__date=day).count()
+        day_price = base_price + (day_bookings * 10)
+        for hour in range(9, 17):
+            hour_start = timezone.make_aware(datetime.combine(day, datetime.min.time()).replace(hour=hour))
+            hour_end = hour_start + timedelta(hours=1)
+            num_booked = Appointment.objects.filter(appointment_date__gte=hour_start, appointment_date__lt=hour_end).count()
+            available = num_booked < max_bookings_per_hour
+            if available:
+                if not earliest:
+                    earliest = {"date": day.strftime('%Y-%m-%d'), "hour": f"{hour:02d}:00", "price": day_price}
+                if lowest_price is None or day_price < lowest_price:
+                    lowest = {"date": day.strftime('%Y-%m-%d'), "hour": f"{hour:02d}:00", "price": day_price}
+                    lowest_price = day_price
+    return JsonResponse({"earliest": earliest, "lowest": lowest})
+
+@csrf_exempt
+@login_required
+def cancel_booking(request):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'POST required'}, status=405)
+    import json
+    try:
+        data = json.loads(request.body)
+        date_str = data.get('date')
+        hour_str = data.get('hour')
+        if not date_str or not hour_str:
+            return JsonResponse({'success': False, 'message': 'Missing date or hour'}, status=400)
+        dt = datetime.strptime(f"{date_str} {hour_str}", "%Y-%m-%d %H:%M")
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': f'Invalid data: {e}'}, status=400)
+
+    # Find and delete the appointment for this user at this time
+    try:
+        appointment = Appointment.objects.get(customer=request.user, appointment_date=dt)
+        appointment.delete()
+        return JsonResponse({'success': True, 'message': 'Booking cancelled successfully.'})
+    except Appointment.DoesNotExist:
+        return JsonResponse({'success': False, 'message': 'No booking found for this slot.'}, status=404)
+    except Exception as e:
+        return JsonResponse({'success': False, 'message': f'Error cancelling booking: {e}'}, status=500)

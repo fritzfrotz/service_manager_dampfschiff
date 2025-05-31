@@ -142,7 +142,7 @@ CELERY_RESULT_SERIALIZER = 'json'
 
 
 LOGIN_URL = '/accounts/login/'
-LOGIN_REDIRECT_URL = '/'  # or '/booking/' if you prefer
+LOGIN_REDIRECT_URL = '/accounts/dashboard/'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
